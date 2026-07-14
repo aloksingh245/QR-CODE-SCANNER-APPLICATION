@@ -42,7 +42,8 @@ graph LR
     Scanner -->|HTTPS Video Stream| C
     Admin -->|HTTPS Views| C
     C -->|REST Requests (HTTPS)| D
-    C ---|WebSockets (WS/WSS)| E
+    C -->|WebSockets (WS/WSS)| E
+    E -->|WebSockets (WS/WSS)| C
     D -->|Pessimistic Queries & Locks| F
 
     %% Apply Classes
