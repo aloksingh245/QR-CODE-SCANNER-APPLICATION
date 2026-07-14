@@ -116,3 +116,13 @@ npm run dev
 ```
 
 *Note: Access the frontend via the HTTPS URL provided in your console (e.g. `https://localhost:5173`) to allow camera capture for scanning.*
+
+---
+
+## 🌐 Deployed Hosting Infrastructure
+
+The production environment of this application is hosted on the following cloud providers:
+- **Frontend Client**: Hosted on **Vercel** ([qr-code-scanner-application.vercel.app](https://qr-code-scanner-application.vercel.app))
+- **Backend API Server**: Hosted on **Render**
+- **Database Server**: Hosted on **Aiven** (MySQL Database Instance)
+
