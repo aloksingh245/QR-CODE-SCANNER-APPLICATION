@@ -14,12 +14,6 @@ This diagram maps the high-level boundaries and data paths of each hosting envir
 
 ```mermaid
 graph LR
-    %% Define Classes for Styling
-    classDef client fill:#f4f9ff,stroke:#2b7de9,stroke-width:2px;
-    classDef frontend fill:#f0fff4,stroke:#38a169,stroke-width:2px;
-    classDef backend fill:#fffaf0,stroke:#dd6b20,stroke-width:2px;
-    classDef database fill:#faf5ff,stroke:#805ad5,stroke-width:2px;
-
     subgraph Clients ["Client Devices"]
         Scanner["Gate Scanner Device<br/>(Camera Capture)"]
         Admin["Admin Dashboard<br/>(Browser Grid)"]
@@ -46,11 +40,13 @@ graph LR
     E -->|WebSockets (WS/WSS)| C
     D -->|Pessimistic Queries & Locks| F
 
-    %% Apply Classes
-    class Scanner,Admin client;
-    class C frontend;
-    class D,E backend;
-    class F database;
+    %% Apply Inline Styles (Fully compatible with all GitHub Markdown versions)
+    style Scanner fill:#f4f9ff,stroke:#2b7de9,stroke-width:2px
+    style Admin fill:#f4f9ff,stroke:#2b7de9,stroke-width:2px
+    style C fill:#f0fff4,stroke:#38a169,stroke-width:2px
+    style D fill:#fffaf0,stroke:#dd6b20,stroke-width:2px
+    style E fill:#fffaf0,stroke:#dd6b20,stroke-width:2px
+    style F fill:#faf5ff,stroke:#805ad5,stroke-width:2px
 ```
 
 ### High-Level Component Description
@@ -69,11 +65,6 @@ This flowchart shows the file-to-file routing pipelines and model accesses:
 
 ```mermaid
 graph TD
-    %% Define Classes for Styling
-    classDef frontend fill:#f0fff4,stroke:#38a169,stroke-width:2px;
-    classDef backend fill:#fffaf0,stroke:#dd6b20,stroke-width:2px;
-    classDef database fill:#faf5ff,stroke:#805ad5,stroke-width:2px;
-
     subgraph FE_Modules ["Frontend Modules"]
         App["App.jsx (Router)"]
         AuthCtx["AuthContext.jsx (In-Memory Auth)"]
@@ -115,10 +106,23 @@ graph TD
     ScanCtrl --> M_ScanLog
     TicketCtrl --> M_Ticket
     
-    %% Apply Classes
-    class App,AuthCtx,ScannerPage,DashPage,api,TicketTable frontend;
-    class Server,AuthMW,RoleMW,ScanCtrl,TicketCtrl backend;
-    class M_User,M_Ticket,M_ScanLog database;
+    %% Apply Inline Styles (Fully compatible with all GitHub Markdown versions)
+    style App fill:#f0fff4,stroke:#38a169,stroke-width:2px
+    style AuthCtx fill:#f0fff4,stroke:#38a169,stroke-width:2px
+    style ScannerPage fill:#f0fff4,stroke:#38a169,stroke-width:2px
+    style DashPage fill:#f0fff4,stroke:#38a169,stroke-width:2px
+    style api fill:#f0fff4,stroke:#38a169,stroke-width:2px
+    style TicketTable fill:#f0fff4,stroke:#38a169,stroke-width:2px
+
+    style Server fill:#fffaf0,stroke:#dd6b20,stroke-width:2px
+    style AuthMW fill:#fffaf0,stroke:#dd6b20,stroke-width:2px
+    style RoleMW fill:#fffaf0,stroke:#dd6b20,stroke-width:2px
+    style ScanCtrl fill:#fffaf0,stroke:#dd6b20,stroke-width:2px
+    style TicketCtrl fill:#fffaf0,stroke:#dd6b20,stroke-width:2px
+
+    style M_User fill:#faf5ff,stroke:#805ad5,stroke-width:2px
+    style M_Ticket fill:#faf5ff,stroke:#805ad5,stroke-width:2px
+    style M_ScanLog fill:#faf5ff,stroke:#805ad5,stroke-width:2px
 ```
 
 ---
@@ -132,12 +136,12 @@ This sequence diagram details the database locking step and the subsequent WebSo
 ```mermaid
 sequenceDiagram
     autonumber
-    actor Scanner as Gate Scanner (Mobile Client)
+    participant Scanner as Gate Scanner (Mobile Client)
     participant Client as React Scanner.jsx
     participant Server as Express Server
     participant DB as MySQL (Aiven)
     participant Socket as Socket.IO Hub
-    actor Admin as Admin Dashboard (Desktop Client)
+    participant Admin as Admin Dashboard (Desktop Client)
 
     Scanner->>Client: Scans QR code
     Client->>Server: POST /api/scan { qr_id: "T-001" } with Bearer JWT
