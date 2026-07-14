@@ -1,115 +1,191 @@
 # 🎟️ Real-Time Event Entry & QR Verification System — Architecture
 
-This document outlines the architecture, data flows, and concurrency handling in this project.
+This document describes the design patterns, system flow diagrams, and architectural modules of the QR Verification System. It is divided into two sections: **High-Level Design (HLD)** (conceptual system structure) and **Low-Level Design (LLD)** (code modules, implementation sequences, and database locking flows).
 
 ---
 
-## 🏗️ Architecture Flow Diagram
+## 🗺️ 1. High-Level Design (HLD)
+
+The High-Level Design focuses on how the separate components of our cloud-hosted stack communicate with each other. The application is split into three tiers: **Presentation (Vercel)**, **Business Logic (Render)**, and **Database (Aiven)**.
+
+### HLD System Diagram
+
+This diagram maps the high-level boundaries and data paths of each hosting environment:
 
 ```mermaid
-graph TD
+graph LR
     %% Define Classes for Styling
     classDef client fill:#f4f9ff,stroke:#2b7de9,stroke-width:2px;
     classDef frontend fill:#f0fff4,stroke:#38a169,stroke-width:2px;
     classDef backend fill:#fffaf0,stroke:#dd6b20,stroke-width:2px;
     classDef database fill:#faf5ff,stroke:#805ad5,stroke-width:2px;
 
-    %% Subgraphs
-    subgraph Users ["Actors & Clients"]
-        Scanner["Mobile Gate Scanner (SCANNER role)"]
-        Admin["Admin Web Dashboard (ADMIN role)"]
-    end
-    
-    subgraph FE ["React Frontend (Vite + HTTPS)"]
-        App["App.jsx"]
-        AuthCtx["AuthContext.jsx"]
-        ScannerPage["Scanner.jsx (Camera feed via html5-qrcode)"]
-        DashPage["Dashboard.jsx (Real-time stats)"]
-        APIClient["api.js (Axios Client)"]
-        SocketClient["Socket.io-client"]
+    subgraph Clients ["Client Devices"]
+        Scanner["Gate Scanner Device<br/>(Camera Capture)"]
+        Admin["Admin Dashboard<br/>(Browser Grid)"]
     end
 
-    subgraph BE ["Express Backend & Socket.IO (Node.js)"]
-        Server["server.js"]
-        AuthMW["auth.js & role.js (Middlewares)"]
-        ScanCtrl["scanController.js"]
-        TicketCtrl["ticketController.js"]
-        SocketServer["Socket.IO Server"]
+    subgraph Front ["Frontend Client (Vercel)"]
+        C["React SPA Application<br/>(UI Views & Context)"]
     end
 
-    subgraph DB ["Database (MySQL + Sequelize)"]
-        MySQL[("MySQL Server")]
-        TxLock["Serializable Transaction + Pessimistic Row Lock"]
+    subgraph Back ["Backend Services (Render)"]
+        D["Express.js HTTP Server<br/>(REST API Routes)"]
+        E["Socket.IO WebSocket Server<br/>(Real-Time Broadcasts)"]
     end
 
-    %% Client Interactions
-    Scanner -->|Camera Scan| ScannerPage
-    Admin -->|Desktop View| DashPage
+    subgraph Storage ["Database Service (Aiven)"]
+        F[("MySQL Database Server<br/>(Persistent Tables)")]
+    end
 
-    %% Frontend Internal
-    ScannerPage -->|Request Scan| APIClient
-    DashPage -->|Fetch Stats / Reset| APIClient
-    DashPage -->|Subscribes| SocketClient
-
-    %% Auth Flow
-    App --> AuthCtx
-    APIClient -->|Attach JWT| AuthMW
-
-    %% Frontend to Backend Connections
-    APIClient -->|HTTP REST Requests| Server
-    SocketClient <-->|WebSocket Connection| SocketServer
-
-    %% Backend Routing & Execution
-    Server --> AuthMW
-    AuthMW -->|Auth Pass| ScanCtrl
-    AuthMW -->|Auth Pass| TicketCtrl
-
-    %% Concurrency & DB Layer
-    ScanCtrl -->|1. Open Transaction| TxLock
-    TxLock -->|2. Lock and Check Ticket| MySQL
-    ScanCtrl -->|3. Update State & Commit| MySQL
-    TicketCtrl -->|Query / Update| MySQL
-
-    %% Socket Broadcasts
-    ScanCtrl -->|4. Emit updates| SocketServer
-    TicketCtrl -->|Emit updates on Reset| SocketServer
-    SocketServer -->|Broadcast Events| SocketClient
+    %% High-level data paths
+    Scanner -->|HTTPS Video Stream| C
+    Admin -->|HTTPS Views| C
+    C -->|REST Requests (HTTPS)| D
+    C <-->|WebSockets (WS/WSS)| E
+    D -->|Pessimistic Queries & Locks| F
 
     %% Apply Classes
     class Scanner,Admin client;
-    class App,AuthCtx,ScannerPage,DashPage,APIClient,SocketClient frontend;
-    class Server,AuthMW,ScanCtrl,TicketCtrl,SocketServer backend;
-    class MySQL,TxLock database;
+    class C frontend;
+    class D,E backend;
+    class F database;
+```
+
+### High-Level Component Description
+1.  **Frontend (Vercel)**: Serves a React Single Page Application (SPA). It captures video frames for scanning and displays live updating metric cards.
+2.  **Backend Web Service (Render)**: Runs a Node.js Express server. It exposes endpoints to authenticate users, fetch ticket lists, and verify scan requests. It also operates a Socket.IO hub to broadcast status changes immediately.
+3.  **Database Instance (Aiven)**: A fully managed MySQL instance. It stores table records for tickets, scan logs, and user credentials.
+
+---
+
+## ⚙️ 2. Low-Level Design (LLD)
+
+The Low-Level Design defines the code modules, file relationships, security checks, and database concurrency mechanics.
+
+### A. System Module Map
+This flowchart shows the file-to-file routing pipelines and model accesses:
+
+```mermaid
+graph TD
+    %% Define Classes for Styling
+    classDef frontend fill:#f0fff4,stroke:#38a169,stroke-width:2px;
+    classDef backend fill:#fffaf0,stroke:#dd6b20,stroke-width:2px;
+    classDef database fill:#faf5ff,stroke:#805ad5,stroke-width:2px;
+
+    subgraph FE_Modules ["Frontend Modules"]
+        App["App.jsx (Router)"]
+        AuthCtx["AuthContext.jsx (In-Memory Auth)"]
+        ScannerPage["Scanner.jsx (html5-qrcode reader)"]
+        DashPage["Dashboard.jsx (Socket.IO client hooks)"]
+        api["api.js (Axios config & JWT Interceptor)"]
+        TicketTable["TicketTable.jsx (Grid control)"]
+    end
+
+    subgraph BE_Modules ["Backend Controllers & Middlewares"]
+        Server["server.js (Express & Socket.io init)"]
+        AuthMW["auth.js (JWT signature checker)"]
+        RoleMW["role.js (Role Authorization)"]
+        ScanCtrl["scanController.js (Verification & lock logic)"]
+        TicketCtrl["ticketController.js (CRUD, Reset, Excel export)"]
+    end
+
+    subgraph DB_Models ["Sequelize Database Models"]
+        M_User["User.js (bcrypt hashes)"]
+        M_Ticket["Ticket.js (scan states)"]
+        M_ScanLog["ScanLog.js (scan history)"]
+    end
+
+    %% FE Links
+    App --> AuthCtx
+    ScannerPage --> api
+    DashPage --> api
+    TicketTable --> api
+    api -->|HTTPS Request| Server
+
+    %% BE Routing & Middlewares
+    Server -->|Router| AuthMW
+    AuthMW --> RoleMW
+    RoleMW -->|Route Handlers| ScanCtrl
+    RoleMW -->|Route Handlers| TicketCtrl
+
+    %% Controller to Model access
+    ScanCtrl --> M_Ticket
+    ScanCtrl --> M_ScanLog
+    TicketCtrl --> M_Ticket
+    
+    %% Apply Classes
+    class App,AuthCtx,ScannerPage,DashPage,api,TicketTable frontend;
+    class Server,AuthMW,RoleMW,ScanCtrl,TicketCtrl backend;
+    class M_User,M_Ticket,M_ScanLog database;
 ```
 
 ---
 
-## 🛠️ Key Design Patterns & Code Entrypoints
+### B. Core Sequence Diagram (Scan Verification Loop)
 
-### 🔑 Authentication & Authorization
-- **State Registry**: [AuthContext.jsx](file:///Users/alokkumarsingh/Desktop/node%20js/event/frontend/src/context/AuthContext.jsx) coordinates login credentials in-memory (preventing LocalStorage XSS exploits).
-- **HTTP Interceptors**: [api.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/frontend/src/services/api.js) automatically signs outbound requests with the Bearer JWT token.
-- **Route Access Filters**: Express middlewares [auth.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/middleware/auth.js) and [role.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/middleware/role.js) check permissions for administrative operations (resets, Excel reporting).
+To prevent double-scans (when multiple gates scan the exact same ticket ID at the same millisecond), the verification controller implements **Serializable Transactions** combined with a database **Pessimistic Row Lock** (`SELECT ... FOR UPDATE`). 
 
-### ⚡ Race-Condition Prevention (Pessimistic Locking)
-To safeguard ticket verification against double-scans occurring in parallel, the scan pipeline uses strict isolation:
-1. Opens a Sequelize transaction at the `SERIALIZABLE` isolation level.
-2. Performs a lookup query with `lock: t.LOCK.UPDATE` (translates to MySQL's `SELECT ... FOR UPDATE` row lock).
-3. Holds the lock on the target ticket until status checks and logs are committed/rolled back, forcing concurrent scans to queue.
+This sequence diagram details the database locking step and the subsequent WebSocket update loop:
 
-*Implementation Reference:* [scanController.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/controllers/scanController.js).
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Scanner as Gate Scanner (Mobile Client)
+    participant Client as React Scanner.jsx
+    participant Server as Express Server
+    participant DB as MySQL (Aiven)
+    participant Socket as Socket.IO Hub
+    actor Admin as Admin Dashboard (Desktop Client)
 
-### 📡 WebSocket Sync
-- **Server Entrypoint**: [server.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/server.js) initializes the `Socket.IO` server, attaching it to the main HTTP engine.
-- **Broadcast Signals**:
-  - `stats_update`: Emailed upon successful ticket verification or resets to sync all connected dashboards.
-  - `scan_update`: Broadcasts individual scan event status codes (`SUCCESS`, `DUPLICATE`, `INVALID`) and timestamps.
-- **Dashboard Hooks**: [Dashboard.jsx](file:///Users/alokkumarsingh/Desktop/node%20js/event/frontend/src/pages/Dashboard.jsx) hooks into this socket and triggers component-level updates on event updates.
+    Scanner->>Client: Scans QR code
+    Client->>Server: POST /api/scan { qr_id: "T-001" } with Bearer JWT
+    activate Server
+    Note over Server: Middleware validates token & 'SCANNER' role
+
+    Server->>DB: Open Transaction (ISOLATION = SERIALIZABLE)
+    Server->>DB: SELECT * FROM Tickets WHERE qr_id = 'T-001' FOR UPDATE
+    activate DB
+    Note over DB: Locks row from concurrent updates
+    DB-->>Server: Return Ticket Object
+    deactivate DB
+
+    alt Ticket is already scanned (is_scanned = true)
+        Server->>DB: Insert ScanLog (status = 'DUPLICATE')
+        Server->>DB: Rollback Transaction
+        Server->>Client: 200 OK { success: false, status: "DUPLICATE", message: "Already Scanned" }
+    else Ticket is valid & unscanned (is_scanned = false)
+        Server->>DB: Update Ticket (is_scanned = true, scanned_at = NOW)
+        Server->>DB: Insert ScanLog (status = 'SUCCESS')
+        Server->>DB: Commit Transaction
+        
+        Server->>Socket: Emit stats_update & scan_update events
+        activate Socket
+        Socket-->>Admin: Broadcast live counts & table updates
+        deactivate Socket
+        
+        Server->>Client: 200 OK { success: true, status: "SUCCESS", message: "Entry Allowed" }
+    end
+    deactivate Server
+```
 
 ---
 
-## 📁 Data Models
+### C. Low-Level Design Code References
 
-- **User**: [User.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/models/User.js) (username, hashed password, role: `ADMIN` or `SCANNER`).
-- **Ticket**: [Ticket.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/models/Ticket.js) (unique string `qr_id`, boolean status `is_scanned`, scanned timestamp).
-- **ScanLog**: [ScanLog.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/models/ScanLog.js) (historical entries, documenting verification state: `SUCCESS`, `DUPLICATE`, `INVALID`).
+1.  **Authentication Guard**: The [auth.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/middleware/auth.js) middleware extracts JWT tokens, verifies the signature against `process.env.JWT_SECRET`, and populates the `req.user` payload.
+2.  **Concurrency Locking Engine**: The `scan` controller inside [scanController.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/controllers/scanController.js) invokes the Sequelize transaction:
+    ```javascript
+    const t = await sequelize.transaction({
+      isolationLevel: Sequelize.Transaction.ISOLATION_LEVELS.SERIALIZABLE
+    });
+    ```
+    And forces a pessimistic row lock during discovery:
+    ```javascript
+    const ticket = await Ticket.findOne({
+      where: { qr_id },
+      lock: t.LOCK.UPDATE,
+      transaction: t
+    });
+    ```
+3.  **Real-Time Sync Dispatcher**: In [server.js](file:///Users/alokkumarsingh/Desktop/node%20js/event/backend/server.js), `app.set('io', io)` makes Socket.IO accessible across files. The scan handler triggers broadcasts to update stats counters and administrative tables instantly.
