@@ -35,10 +35,10 @@ graph LR
     %% High-level data paths
     Scanner -->|HTTPS Video Stream| C
     Admin -->|HTTPS Views| C
-    C -->|REST Requests (HTTPS)| D
-    C -->|WebSockets (WS/WSS)| E
-    E -->|WebSockets (WS/WSS)| C
-    D -->|Pessimistic Queries & Locks| F
+    C -->|REST Requests HTTPS| D
+    C -->|WebSockets WS| E
+    E -->|WebSockets WS| C
+    D -->|Pessimistic Queries and Locks| F
 
     %% Apply Inline Styles (Fully compatible with all GitHub Markdown versions)
     style Scanner fill:#f4f9ff,stroke:#2b7de9,stroke-width:2px
